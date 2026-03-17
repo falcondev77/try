@@ -185,7 +185,19 @@ function normalize_price_string(string $raw): ?float {
         $value = str_replace(',', '.', $value);
     }
 
-    return is_numeric($value) ? (float) $value : null;
+    if (!is_numeric($value)) {
+        return null;
+    }
+
+    $f = (float) $value;
+
+    if ($f > 10000 && !str_contains((string) $f, '.')) {
+        $cents = (int) round($f) % 100;
+        $euros = ((int) round($f) - $cents) / 100;
+        return round($euros + $cents / 100, 2);
+    }
+
+    return $f;
 }
 
 function extract_amazon_price_from_html(string $html): ?float {
@@ -198,25 +210,16 @@ function extract_amazon_price_from_html(string $html): ?float {
 
     $xpath = new DOMXPath($dom);
 
-    $primaryXPath = '/html/body/div[1]/div[2]/div[2]/div[5]/div[4]/div[17]/div/div/div[6]/div[1]/span[2]/span[2]';
-    $nodes = $xpath->query($primaryXPath);
-    if ($nodes instanceof DOMNodeList && $nodes->length > 0) {
-        $price = normalize_price_string(trim($nodes->item(0)->textContent));
-        if ($price !== null) {
-            return $price;
-        }
-    }
-
-    $fallbackXPaths = [
+    $priorityXPaths = [
+        '//*[@id="corePrice_feature_div"]//span[contains(@class,"a-offscreen")]',
+        '//*[@id="corePriceDisplay_desktop_feature_div"]//span[contains(@class,"a-offscreen")]',
         '//*[@id="priceblock_ourprice"]',
         '//*[@id="priceblock_dealprice"]',
         '//*[@id="priceblock_saleprice"]',
-        '//*[@id="corePrice_feature_div"]//span[contains(@class,"a-offscreen")]',
-        '//*[@id="corePriceDisplay_desktop_feature_div"]//span[contains(@class,"a-offscreen")]',
-        '//*[contains(@class,"a-price")]//span[contains(@class,"a-offscreen")]',
+        '//*[contains(@class,"a-price") and not(contains(@class,"a-text-strike"))]//span[contains(@class,"a-offscreen")]',
     ];
 
-    foreach ($fallbackXPaths as $expr) {
+    foreach ($priorityXPaths as $expr) {
         $nodes = $xpath->query($expr);
         if (!($nodes instanceof DOMNodeList) || $nodes->length === 0) {
             continue;
@@ -224,13 +227,20 @@ function extract_amazon_price_from_html(string $html): ?float {
 
         foreach ($nodes as $node) {
             $price = normalize_price_string(trim($node->textContent));
-            if ($price !== null) {
+            if ($price !== null && $price > 0) {
                 return $price;
             }
         }
     }
 
     if (preg_match('/"priceAmount"\s*:\s*"?(\d+[\.,]\d{2})"?/i', $html, $matches)) {
+        $price = normalize_price_string($matches[1]);
+        if ($price !== null) {
+            return $price;
+        }
+    }
+
+    if (preg_match('~"price"\s*:\s*"?([\d]+[,\.][\d]{2})"?~', $html, $matches)) {
         $price = normalize_price_string($matches[1]);
         if ($price !== null) {
             return $price;
