@@ -203,25 +203,19 @@ function normalize_price_string(string $raw): ?float {
 function extract_price_from_node(DOMNode $node): ?float {
     $xpath = new DOMXPath($node->ownerDocument);
 
-    $whole = null;
-    $fraction = null;
+    $wholeNodes = $xpath->query('.//span[@aria-hidden="true"]//span[contains(@class,"a-price-whole")]', $node);
+    $fracNodes  = $xpath->query('.//span[@aria-hidden="true"]//span[contains(@class,"a-price-fraction")]', $node);
 
-    $wholeNodes = $xpath->query('.//span[contains(@class,"a-price-whole")]', $node);
-    $fracNodes  = $xpath->query('.//span[contains(@class,"a-price-fraction")]', $node);
+    if ($wholeNodes->length === 0 || $fracNodes->length === 0) {
+        $wholeNodes = $xpath->query('.//span[contains(@class,"a-price-whole")]', $node);
+        $fracNodes  = $xpath->query('.//span[contains(@class,"a-price-fraction")]', $node);
+    }
 
     if ($wholeNodes->length > 0 && $fracNodes->length > 0) {
         $whole    = preg_replace('/[^0-9]/', '', $wholeNodes->item(0)->textContent);
         $fraction = preg_replace('/[^0-9]/', '', $fracNodes->item(0)->textContent);
         if ($whole !== '' && $fraction !== '') {
             return (float) ($whole . '.' . $fraction);
-        }
-    }
-
-    $offNodes = $xpath->query('.//span[contains(@class,"a-offscreen")]', $node);
-    if ($offNodes->length > 0) {
-        $price = normalize_price_string(trim($offNodes->item(0)->textContent));
-        if ($price !== null && $price > 0) {
-            return $price;
         }
     }
 
