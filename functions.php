@@ -232,9 +232,50 @@ function extract_amazon_price_from_html(string $html): ?float {
 
     $xpath = new DOMXPath($dom);
 
-    $priceNode = $xpath->query('/html/body/div[2]/div[2]/div/div[5]/div[4]/div[17]/div/div/div[1]/div/div[6]/div[1]/span[3]/span[2]');
-    if ($priceNode instanceof DOMNodeList && $priceNode->length > 0) {
-        $price = normalize_price_string(trim($priceNode->item(0)->textContent));
+    $mainContainerXPaths = [
+        '//div[@id="corePriceDisplay_desktop_feature_div"]',
+        '//div[@id="corePrice_feature_div"]',
+        '//div[@id="apex_desktop_newAccordionRow"]//div[contains(@class,"a-section")]',
+        '//div[@id="apex_desktop"]',
+    ];
+
+    foreach ($mainContainerXPaths as $expr) {
+        $containers = $xpath->query($expr);
+        if (!($containers instanceof DOMNodeList) || $containers->length === 0) {
+            continue;
+        }
+        $price = extract_price_from_node($containers->item(0));
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    $legacyXPaths = [
+        '//*[@id="priceblock_ourprice"]',
+        '//*[@id="priceblock_dealprice"]',
+        '//*[@id="priceblock_saleprice"]',
+    ];
+
+    foreach ($legacyXPaths as $expr) {
+        $nodes = $xpath->query($expr);
+        if (!($nodes instanceof DOMNodeList) || $nodes->length === 0) {
+            continue;
+        }
+        $price = normalize_price_string(trim($nodes->item(0)->textContent));
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    if (preg_match('~"buyingPrice"\s*:\s*([\d]+\.[\d]{2})~', $html, $m)) {
+        $price = normalize_price_string($m[1]);
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    if (preg_match('~"displayPrice"\s*:\s*"([\d]+[,\.]\d{2})\s*€"~', $html, $m)) {
+        $price = normalize_price_string($m[1]);
         if ($price !== null && $price > 0) {
             return $price;
         }
