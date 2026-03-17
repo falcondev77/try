@@ -24,7 +24,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = db()->prepare('INSERT INTO users (name, email, password_hash, is_admin, total_points, created_at) VALUES (?, ?, ?, 0, 0, NOW())');
             $stmt->execute([$name, $email, $hash]);
             $userId = (int) db()->lastInsertId();
-            ensureAdminExists($userId);
             $_SESSION['user_id'] = $userId;
             header('Location: dashboard.php');
             exit;

@@ -70,14 +70,6 @@ function setSettingIfMissing(string $key, string $value): void {
     }
 }
 
-function ensureAdminExists(int $userId): void {
-    $count = (int) db()->query('SELECT COUNT(*) FROM users WHERE is_admin = 1')->fetchColumn();
-    if ($count === 0) {
-        $stmt = db()->prepare('UPDATE users SET is_admin = 1 WHERE id = ?');
-        $stmt->execute([$userId]);
-    }
-}
-
 function normalizeAmazonUrl(string $input): string {
     $input = trim($input);
     if (!preg_match('~^https?://~i', $input)) {
