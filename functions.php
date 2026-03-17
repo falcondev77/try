@@ -59,8 +59,22 @@ function setSetting(string $key, string $value): void {
 function bootstrapSettings(): void {
     setSettingIfMissing('affiliate_tag', DEFAULT_AFFILIATE_TAG);
     setSettingIfMissing('default_category_slug', 'elettronica');
+    migrateDatabase();
     seedCategoryRules();
     seedRewards();
+}
+
+function migrateDatabase(): void {
+    try {
+        $cols = db()->query("SHOW COLUMNS FROM link_requests")->fetchAll(PDO::FETCH_COLUMN);
+        if (!in_array('category_slug', $cols, true)) {
+            db()->exec("ALTER TABLE link_requests ADD COLUMN category_slug VARCHAR(80) DEFAULT NULL");
+        }
+        if (!in_array('category_name', $cols, true)) {
+            db()->exec("ALTER TABLE link_requests ADD COLUMN category_name VARCHAR(120) DEFAULT NULL");
+        }
+    } catch (Throwable $e) {
+    }
 }
 
 function setSettingIfMissing(string $key, string $value): void {
