@@ -1,7 +1,6 @@
 document.addEventListener('DOMContentLoaded', function () {
     const btn = document.getElementById('analyzeBtn');
     const input = document.getElementById('amazonUrl');
-    const category = document.getElementById('categorySlug');
     const resultBox = document.getElementById('resultBox');
 
     if (!btn || !input || !resultBox) {
@@ -16,15 +15,12 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         btn.disabled = true;
-        btn.textContent = 'Calcolo in corso...';
+        btn.textContent = 'Analisi in corso...';
         resultBox.classList.remove('hidden');
-        resultBox.innerHTML = '<div class="small">Sto analizzando il link...</div>';
+        resultBox.innerHTML = '<div style="color:#525252;font-size:14px;">Sto analizzando il link...</div>';
 
         const formData = new FormData();
         formData.append('url', url);
-        if (category) {
-            formData.append('category_slug', category.value);
-        }
 
         fetch('api_convert.php', {
             method: 'POST',
@@ -39,30 +35,30 @@ document.addEventListener('DOMContentLoaded', function () {
                 return data;
             })
             .then(function (data) {
-                const price = data.price_label || 'Prezzo non disponibile';
                 const calc = data.calculation || null;
                 const categoryRule = data.category_rule || null;
-                const details = calc ? `
-                    <p><strong>Categoria:</strong> ${escapeHtml(categoryRule.category_name || '-')}</p>
-                    <p><strong>Commissione Amazon:</strong> ${Number(calc.amazon_rate).toLocaleString('it-IT')}%</p>
-                    <p><strong>Quota utente:</strong> ${Number(calc.share_percent).toLocaleString('it-IT')}%</p>
-                    <p><strong>Tua commissione stimata:</strong> ${formatEuro(calc.amazon_commission)}</p>
-                    <p><strong>Valore utente:</strong> ${formatEuro(calc.user_value)}</p>
-                ` : '';
 
-                resultBox.innerHTML = `
-                    <h3>${escapeHtml(data.title || 'Prodotto Amazon')}</h3>
-                    <p><strong>ASIN:</strong> ${escapeHtml(data.asin)}</p>
-                    <p><strong>Prezzo rilevato:</strong> ${escapeHtml(price)}</p>
-                    <p><strong>Punti previsti:</strong> <span class="points">${Number(data.points).toLocaleString('it-IT')}</span></p>
-                    ${details}
-                    <p><strong>Tag affiliato:</strong> ${escapeHtml(data.tag)}</p>
-                    <div class="actions">
-                        <a class="btn" href="${escapeHtml(data.go_url)}">Vai su Amazon con link affiliato</a>
-                        <a class="btn btn-light" href="${escapeHtml(data.affiliate_url)}" target="_blank" rel="noopener">Apri link diretto</a>
-                    </div>
-                    <p class="small">Calcolo: prezzo × commissione Amazon × quota utente × 100.</p>
-                `;
+                const metaItems = [
+                    { label: 'Prezzo', value: data.price_label || 'N/D', accent: false },
+                    { label: 'Categoria', value: categoryRule ? categoryRule.category_name : '-', accent: false },
+                    { label: 'Commissione', value: categoryRule ? Number(categoryRule.amazon_rate).toLocaleString('it-IT') + '%' : '-', accent: false },
+                    { label: 'Punti previsti', value: Number(data.points).toLocaleString('it-IT'), accent: true },
+                ];
+
+                const metaHtml = metaItems.map(function (item) {
+                    return '<div class="result-meta-item">' +
+                        '<div class="result-meta-label">' + escapeHtml(item.label) + '</div>' +
+                        '<div class="result-meta-value' + (item.accent ? ' accent' : '') + '">' + escapeHtml(String(item.value)) + '</div>' +
+                        '</div>';
+                }).join('');
+
+                resultBox.innerHTML =
+                    '<div class="result-product-title">' + escapeHtml(data.title || 'Prodotto Amazon') + '</div>' +
+                    '<div class="result-meta">' + metaHtml + '</div>' +
+                    '<div class="result-actions">' +
+                        '<a class="btn-result-primary" href="' + escapeHtml(data.go_url) + '">Vai su Amazon &rarr;</a>' +
+                        '<a class="btn-result-secondary" href="' + escapeHtml(data.affiliate_url) + '" target="_blank" rel="noopener">Apri link diretto</a>' +
+                    '</div>';
             })
             .catch(function (error) {
                 renderError(error.message || 'Errore imprevisto.');
@@ -75,7 +71,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function renderError(message) {
         resultBox.classList.remove('hidden');
-        resultBox.innerHTML = `<div class="alert error">${escapeHtml(message)}</div>`;
+        resultBox.innerHTML = '<div class="result-alert-error">' + escapeHtml(message) + '</div>';
     }
 
     function escapeHtml(value) {
@@ -85,10 +81,5 @@ document.addEventListener('DOMContentLoaded', function () {
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
-    }
-
-    function formatEuro(value) {
-        const number = Number(value || 0);
-        return '€ ' + number.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 });

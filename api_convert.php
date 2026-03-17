@@ -6,7 +6,6 @@ header('Content-Type: application/json; charset=utf-8');
 
 try {
     $inputUrl = trim($_POST['url'] ?? '');
-    $categorySlug = trim($_POST['category_slug'] ?? '');
 
     if ($inputUrl === '') {
         throw new RuntimeException('Inserisci un link Amazon.');
@@ -24,7 +23,8 @@ try {
         throw new RuntimeException('ASIN non trovato nel link inserito.');
     }
 
-    $categoryRule = getCategoryRuleBySlug($categorySlug);
+    $defaultSlug = getSetting('default_category_slug', 'elettronica');
+    $categoryRule = getCategoryRuleBySlug($defaultSlug);
     $product = fetchProductDataByAsin($asin, $categoryRule['slug'] ?? null);
     $affiliateUrl = buildAffiliateUrl($asin);
     $calculation = $product['calculation'] ?? null;
