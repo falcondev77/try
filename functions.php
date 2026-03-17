@@ -200,8 +200,71 @@ function normalize_price_string(string $raw): ?float {
     return $f;
 }
 
+function extract_price_from_single_aprice(DOMNode $priceSpan): ?float {
+    $xpath = new DOMXPath($priceSpan->ownerDocument);
+
+    $wholeNodes = $xpath->query('.//span[contains(@class,"a-price-whole")]', $priceSpan);
+    $fracNodes  = $xpath->query('.//span[contains(@class,"a-price-fraction")]', $priceSpan);
+
+    if ($wholeNodes->length > 0 && $fracNodes->length > 0) {
+        $whole    = preg_replace('/[^0-9]/', '', $wholeNodes->item(0)->textContent);
+        $fraction = preg_replace('/[^0-9]/', '', $fracNodes->item(0)->textContent);
+        if ($whole !== '' && $fraction !== '') {
+            return (float) ($whole . '.' . $fraction);
+        }
+    }
+
+    return null;
+}
+
 function extract_price_from_node(DOMNode $node): ?float {
     $xpath = new DOMXPath($node->ownerDocument);
+
+    $priceToPaySelectors = [
+        './/span[contains(@class,"priceToPay")]',
+        './/span[contains(@class,"apexPriceToPay")]',
+        './/span[contains(@class,"a-price") and not(contains(@class,"a-text-price")) and not(@data-a-strike)]',
+    ];
+
+    foreach ($priceToPaySelectors as $selector) {
+        $nodes = $xpath->query($selector, $node);
+        if ($nodes instanceof DOMNodeList && $nodes->length > 0) {
+            for ($i = 0; $i < $nodes->length; $i++) {
+                $price = extract_price_from_single_aprice($nodes->item($i));
+                if ($price !== null && $price > 0) {
+                    return $price;
+                }
+            }
+        }
+    }
+
+    $allPriceNodes = $xpath->query('.//span[contains(@class,"a-price")]', $node);
+    if ($allPriceNodes instanceof DOMNodeList && $allPriceNodes->length > 0) {
+        $bestPrice = null;
+        for ($i = 0; $i < $allPriceNodes->length; $i++) {
+            $priceNode = $allPriceNodes->item($i);
+            $classes = $priceNode->getAttribute('class') ?? '';
+            if (str_contains($classes, 'a-text-price') || $priceNode->getAttribute('data-a-strike') === 'true') {
+                continue;
+            }
+            $price = extract_price_from_single_aprice($priceNode);
+            if ($price !== null && $price > 0) {
+                return $price;
+            }
+        }
+
+        for ($i = 0; $i < $allPriceNodes->length; $i++) {
+            $price = extract_price_from_single_aprice($allPriceNodes->item($i));
+            if ($price !== null && $price > 0) {
+                if ($bestPrice === null || $price > $bestPrice) {
+                    $bestPrice = $price;
+                }
+            }
+        }
+        if ($bestPrice !== null) {
+            return $bestPrice;
+        }
+    }
 
     $wholeNodes = $xpath->query('.//span[@aria-hidden="true"]//span[contains(@class,"a-price-whole")]', $node);
     $fracNodes  = $xpath->query('.//span[@aria-hidden="true"]//span[contains(@class,"a-price-fraction")]', $node);
@@ -219,6 +282,30 @@ function extract_price_from_node(DOMNode $node): ?float {
         }
     }
 
+    return null;
+}
+
+function extract_price_from_jsonld(string $html): ?float {
+    if (preg_match_all('~<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>~si', $html, $matches)) {
+        foreach ($matches[1] as $jsonStr) {
+            $data = @json_decode($jsonStr, true);
+            if (!is_array($data)) {
+                continue;
+            }
+            $offers = $data['offers'] ?? ($data['Offers'] ?? null);
+            if (is_array($offers)) {
+                if (isset($offers['@type'])) {
+                    $offers = [$offers];
+                }
+                foreach ($offers as $offer) {
+                    $p = $offer['price'] ?? null;
+                    if ($p !== null && is_numeric($p) && (float) $p > 0) {
+                        return (float) $p;
+                    }
+                }
+            }
+        }
+    }
     return null;
 }
 
@@ -265,6 +352,11 @@ function extract_amazon_price_from_html(string $html): ?float {
         if ($price !== null && $price > 0) {
             return $price;
         }
+    }
+
+    $jsonLdPrice = extract_price_from_jsonld($html);
+    if ($jsonLdPrice !== null) {
+        return $jsonLdPrice;
     }
 
     if (preg_match('~"buyingPrice"\s*:\s*([\d]+\.[\d]{2})~', $html, $m)) {
