@@ -201,6 +201,20 @@ function normalize_price_string(string $raw): ?float {
 }
 
 function extract_amazon_price_from_html(string $html): ?float {
+    if (preg_match('~"buyingPrice"\s*:\s*([\d]+\.[\d]{2})~', $html, $m)) {
+        $price = normalize_price_string($m[1]);
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    if (preg_match('~"displayPrice"\s*:\s*"([\d]+[,\.]\d{2})\s*€"~', $html, $m)) {
+        $price = normalize_price_string($m[1]);
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
     libxml_use_internal_errors(true);
 
     $dom = new DOMDocument();
@@ -210,39 +224,36 @@ function extract_amazon_price_from_html(string $html): ?float {
 
     $xpath = new DOMXPath($dom);
 
-    $priorityXPaths = [
-        '//*[@id="corePrice_feature_div"]//span[contains(@class,"a-offscreen")]',
+    $mainBlockXPaths = [
+        '//*[@id="apex_desktop"]//span[contains(@class,"a-offscreen")]',
         '//*[@id="corePriceDisplay_desktop_feature_div"]//span[contains(@class,"a-offscreen")]',
+        '//*[@id="corePrice_feature_div"]//span[contains(@class,"a-offscreen")]',
         '//*[@id="priceblock_ourprice"]',
         '//*[@id="priceblock_dealprice"]',
         '//*[@id="priceblock_saleprice"]',
-        '//*[contains(@class,"a-price") and not(contains(@class,"a-text-strike"))]//span[contains(@class,"a-offscreen")]',
     ];
 
-    foreach ($priorityXPaths as $expr) {
+    foreach ($mainBlockXPaths as $expr) {
         $nodes = $xpath->query($expr);
         if (!($nodes instanceof DOMNodeList) || $nodes->length === 0) {
             continue;
         }
 
         foreach ($nodes as $node) {
-            $price = normalize_price_string(trim($node->textContent));
-            if ($price !== null && $price > 0) {
+            $text = trim($node->textContent);
+            if ($text === '') {
+                continue;
+            }
+            $price = normalize_price_string($text);
+            if ($price !== null && $price > 0 && $price < 100000) {
                 return $price;
             }
         }
     }
 
-    if (preg_match('/"priceAmount"\s*:\s*"?(\d+[\.,]\d{2})"?/i', $html, $matches)) {
+    if (preg_match('/"priceAmount"\s*:\s*"?([\d]+[,\.][\d]{2})"?/i', $html, $matches)) {
         $price = normalize_price_string($matches[1]);
-        if ($price !== null) {
-            return $price;
-        }
-    }
-
-    if (preg_match('~"price"\s*:\s*"?([\d]+[,\.][\d]{2})"?~', $html, $matches)) {
-        $price = normalize_price_string($matches[1]);
-        if ($price !== null) {
+        if ($price !== null && $price > 0) {
             return $price;
         }
     }
