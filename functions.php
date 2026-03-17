@@ -200,21 +200,35 @@ function normalize_price_string(string $raw): ?float {
     return $f;
 }
 
+function extract_price_from_node(DOMNode $node): ?float {
+    $xpath = new DOMXPath($node->ownerDocument);
+
+    $whole = null;
+    $fraction = null;
+
+    $wholeNodes = $xpath->query('.//span[contains(@class,"a-price-whole")]', $node);
+    $fracNodes  = $xpath->query('.//span[contains(@class,"a-price-fraction")]', $node);
+
+    if ($wholeNodes->length > 0 && $fracNodes->length > 0) {
+        $whole    = preg_replace('/[^0-9]/', '', $wholeNodes->item(0)->textContent);
+        $fraction = preg_replace('/[^0-9]/', '', $fracNodes->item(0)->textContent);
+        if ($whole !== '' && $fraction !== '') {
+            return (float) ($whole . '.' . $fraction);
+        }
+    }
+
+    $offNodes = $xpath->query('.//span[contains(@class,"a-offscreen")]', $node);
+    if ($offNodes->length > 0) {
+        $price = normalize_price_string(trim($offNodes->item(0)->textContent));
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    return null;
+}
+
 function extract_amazon_price_from_html(string $html): ?float {
-    if (preg_match('~"buyingPrice"\s*:\s*([\d]+\.[\d]{2})~', $html, $m)) {
-        $price = normalize_price_string($m[1]);
-        if ($price !== null && $price > 0) {
-            return $price;
-        }
-    }
-
-    if (preg_match('~"displayPrice"\s*:\s*"([\d]+[,\.]\d{2})\s*€"~', $html, $m)) {
-        $price = normalize_price_string($m[1]);
-        if ($price !== null && $price > 0) {
-            return $price;
-        }
-    }
-
     libxml_use_internal_errors(true);
 
     $dom = new DOMDocument();
@@ -224,35 +238,50 @@ function extract_amazon_price_from_html(string $html): ?float {
 
     $xpath = new DOMXPath($dom);
 
-    $mainBlockXPaths = [
-        '//*[@id="apex_desktop"]//span[contains(@class,"a-offscreen")]',
-        '//*[@id="corePriceDisplay_desktop_feature_div"]//span[contains(@class,"a-offscreen")]',
-        '//*[@id="corePrice_feature_div"]//span[contains(@class,"a-offscreen")]',
+    $mainContainerXPaths = [
+        '//div[@id="corePriceDisplay_desktop_feature_div"]',
+        '//div[@id="corePrice_feature_div"]',
+        '//div[@id="apex_desktop_newAccordionRow"]//div[contains(@class,"a-section")]',
+        '//div[@id="apex_desktop"]',
+    ];
+
+    foreach ($mainContainerXPaths as $expr) {
+        $containers = $xpath->query($expr);
+        if (!($containers instanceof DOMNodeList) || $containers->length === 0) {
+            continue;
+        }
+        $price = extract_price_from_node($containers->item(0));
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    $legacyXPaths = [
         '//*[@id="priceblock_ourprice"]',
         '//*[@id="priceblock_dealprice"]',
         '//*[@id="priceblock_saleprice"]',
     ];
 
-    foreach ($mainBlockXPaths as $expr) {
+    foreach ($legacyXPaths as $expr) {
         $nodes = $xpath->query($expr);
         if (!($nodes instanceof DOMNodeList) || $nodes->length === 0) {
             continue;
         }
-
-        foreach ($nodes as $node) {
-            $text = trim($node->textContent);
-            if ($text === '') {
-                continue;
-            }
-            $price = normalize_price_string($text);
-            if ($price !== null && $price > 0 && $price < 100000) {
-                return $price;
-            }
+        $price = normalize_price_string(trim($nodes->item(0)->textContent));
+        if ($price !== null && $price > 0) {
+            return $price;
         }
     }
 
-    if (preg_match('/"priceAmount"\s*:\s*"?([\d]+[,\.][\d]{2})"?/i', $html, $matches)) {
-        $price = normalize_price_string($matches[1]);
+    if (preg_match('~"buyingPrice"\s*:\s*([\d]+\.[\d]{2})~', $html, $m)) {
+        $price = normalize_price_string($m[1]);
+        if ($price !== null && $price > 0) {
+            return $price;
+        }
+    }
+
+    if (preg_match('~"displayPrice"\s*:\s*"([\d]+[,\.]\d{2})\s*€"~', $html, $m)) {
+        $price = normalize_price_string($m[1]);
         if ($price !== null && $price > 0) {
             return $price;
         }
