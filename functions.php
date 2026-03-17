@@ -200,6 +200,21 @@ function normalize_price_string(string $raw): ?float {
     return $f;
 }
 
+function price_log(string $message): void {
+    if (!isset($GLOBALS['__price_debug_log'])) {
+        $GLOBALS['__price_debug_log'] = [];
+    }
+    $GLOBALS['__price_debug_log'][] = $message;
+}
+
+function get_price_debug_log(): array {
+    return $GLOBALS['__price_debug_log'] ?? [];
+}
+
+function reset_price_debug_log(): void {
+    $GLOBALS['__price_debug_log'] = [];
+}
+
 function extract_price_from_single_aprice(DOMNode $priceSpan): ?float {
     $xpath = new DOMXPath($priceSpan->ownerDocument);
 
@@ -221,17 +236,24 @@ function extract_price_from_node(DOMNode $node): ?float {
     $xpath = new DOMXPath($node->ownerDocument);
 
     $priceToPaySelectors = [
-        './/span[contains(@class,"priceToPay")]',
-        './/span[contains(@class,"apexPriceToPay")]',
-        './/span[contains(@class,"a-price") and not(contains(@class,"a-text-price")) and not(@data-a-strike)]',
+        'priceToPay' => './/span[contains(@class,"priceToPay")]',
+        'apexPriceToPay' => './/span[contains(@class,"apexPriceToPay")]',
+        'a-price (no strike)' => './/span[contains(@class,"a-price") and not(contains(@class,"a-text-price")) and not(@data-a-strike)]',
     ];
 
-    foreach ($priceToPaySelectors as $selector) {
+    foreach ($priceToPaySelectors as $label => $selector) {
         $nodes = $xpath->query($selector, $node);
-        if ($nodes instanceof DOMNodeList && $nodes->length > 0) {
+        $count = ($nodes instanceof DOMNodeList) ? $nodes->length : 0;
+        price_log("[extract_price_from_node] Selector '{$label}': trovati {$count} nodi");
+        if ($count > 0) {
             for ($i = 0; $i < $nodes->length; $i++) {
-                $price = extract_price_from_single_aprice($nodes->item($i));
+                $el = $nodes->item($i);
+                $cls = $el->getAttribute('class') ?? '';
+                $raw = trim($el->textContent);
+                $price = extract_price_from_single_aprice($el);
+                price_log("  -> nodo #{$i} class=\"{$cls}\" raw=\"{$raw}\" => prezzo=" . ($price !== null ? $price : 'null'));
                 if ($price !== null && $price > 0) {
+                    price_log("  ** SELEZIONATO: {$price} (via {$label})");
                     return $price;
                 }
             }
@@ -239,20 +261,28 @@ function extract_price_from_node(DOMNode $node): ?float {
     }
 
     $allPriceNodes = $xpath->query('.//span[contains(@class,"a-price")]', $node);
+    $totalAll = ($allPriceNodes instanceof DOMNodeList) ? $allPriceNodes->length : 0;
+    price_log("[extract_price_from_node] Fallback: tutti a-price spans = {$totalAll}");
+
     if ($allPriceNodes instanceof DOMNodeList && $allPriceNodes->length > 0) {
-        $bestPrice = null;
         for ($i = 0; $i < $allPriceNodes->length; $i++) {
             $priceNode = $allPriceNodes->item($i);
             $classes = $priceNode->getAttribute('class') ?? '';
-            if (str_contains($classes, 'a-text-price') || $priceNode->getAttribute('data-a-strike') === 'true') {
+            $strike = $priceNode->getAttribute('data-a-strike') ?? '';
+            $raw = trim($priceNode->textContent);
+            $isStrike = str_contains($classes, 'a-text-price') || $strike === 'true';
+            $price = extract_price_from_single_aprice($priceNode);
+            price_log("  -> a-price #{$i} class=\"{$classes}\" strike={$strike} raw=\"{$raw}\" => prezzo=" . ($price !== null ? $price : 'null') . ($isStrike ? ' [BARRATO - skip]' : ''));
+            if ($isStrike) {
                 continue;
             }
-            $price = extract_price_from_single_aprice($priceNode);
             if ($price !== null && $price > 0) {
+                price_log("  ** SELEZIONATO: {$price} (via fallback non-barrato)");
                 return $price;
             }
         }
 
+        $bestPrice = null;
         for ($i = 0; $i < $allPriceNodes->length; $i++) {
             $price = extract_price_from_single_aprice($allPriceNodes->item($i));
             if ($price !== null && $price > 0) {
@@ -262,6 +292,7 @@ function extract_price_from_node(DOMNode $node): ?float {
             }
         }
         if ($bestPrice !== null) {
+            price_log("  ** SELEZIONATO: {$bestPrice} (via best-price tra tutti)");
             return $bestPrice;
         }
     }
@@ -278,10 +309,13 @@ function extract_price_from_node(DOMNode $node): ?float {
         $whole    = preg_replace('/[^0-9]/', '', $wholeNodes->item(0)->textContent);
         $fraction = preg_replace('/[^0-9]/', '', $fracNodes->item(0)->textContent);
         if ($whole !== '' && $fraction !== '') {
-            return (float) ($whole . '.' . $fraction);
+            $p = (float) ($whole . '.' . $fraction);
+            price_log("  ** SELEZIONATO: {$p} (via legacy whole+fraction)");
+            return $p;
         }
     }
 
+    price_log("[extract_price_from_node] Nessun prezzo trovato nel nodo");
     return null;
 }
 
@@ -310,69 +344,95 @@ function extract_price_from_jsonld(string $html): ?float {
 }
 
 function extract_amazon_price_from_html(string $html): ?float {
+    reset_price_debug_log();
     libxml_use_internal_errors(true);
+
+    price_log("=== INIZIO ESTRAZIONE PREZZO ===");
+    price_log("HTML length: " . strlen($html) . " bytes");
 
     $dom = new DOMDocument();
     if (!$dom->loadHTML($html)) {
+        price_log("ERRORE: impossibile parsare HTML");
         return null;
     }
 
     $xpath = new DOMXPath($dom);
 
     $mainContainerXPaths = [
-        '//div[@id="corePriceDisplay_desktop_feature_div"]',
-        '//div[@id="corePrice_feature_div"]',
-        '//div[@id="apex_desktop_newAccordionRow"]//div[contains(@class,"a-section")]',
-        '//div[@id="apex_desktop"]',
+        'corePriceDisplay_desktop_feature_div' => '//div[@id="corePriceDisplay_desktop_feature_div"]',
+        'corePrice_feature_div' => '//div[@id="corePrice_feature_div"]',
+        'apex_desktop_newAccordionRow' => '//div[@id="apex_desktop_newAccordionRow"]//div[contains(@class,"a-section")]',
+        'apex_desktop' => '//div[@id="apex_desktop"]',
     ];
 
-    foreach ($mainContainerXPaths as $expr) {
+    foreach ($mainContainerXPaths as $label => $expr) {
         $containers = $xpath->query($expr);
-        if (!($containers instanceof DOMNodeList) || $containers->length === 0) {
+        $found = ($containers instanceof DOMNodeList) ? $containers->length : 0;
+        price_log("[Container] '{$label}': " . ($found > 0 ? "TROVATO ({$found})" : "non trovato"));
+        if ($found === 0) {
             continue;
         }
         $price = extract_price_from_node($containers->item(0));
         if ($price !== null && $price > 0) {
+            price_log("=> PREZZO FINALE: {$price} (da container '{$label}')");
             return $price;
         }
+        price_log("[Container] '{$label}': nessun prezzo valido estratto dal nodo");
     }
 
     $legacyXPaths = [
-        '//*[@id="priceblock_ourprice"]',
-        '//*[@id="priceblock_dealprice"]',
-        '//*[@id="priceblock_saleprice"]',
+        'priceblock_ourprice' => '//*[@id="priceblock_ourprice"]',
+        'priceblock_dealprice' => '//*[@id="priceblock_dealprice"]',
+        'priceblock_saleprice' => '//*[@id="priceblock_saleprice"]',
     ];
 
-    foreach ($legacyXPaths as $expr) {
+    foreach ($legacyXPaths as $label => $expr) {
         $nodes = $xpath->query($expr);
-        if (!($nodes instanceof DOMNodeList) || $nodes->length === 0) {
+        $found = ($nodes instanceof DOMNodeList) ? $nodes->length : 0;
+        price_log("[Legacy] '{$label}': " . ($found > 0 ? "TROVATO" : "non trovato"));
+        if ($found === 0) {
             continue;
         }
-        $price = normalize_price_string(trim($nodes->item(0)->textContent));
+        $raw = trim($nodes->item(0)->textContent);
+        $price = normalize_price_string($raw);
+        price_log("[Legacy] '{$label}' raw=\"{$raw}\" => prezzo=" . ($price !== null ? $price : 'null'));
         if ($price !== null && $price > 0) {
+            price_log("=> PREZZO FINALE: {$price} (da legacy '{$label}')");
             return $price;
         }
     }
 
+    price_log("[JSON-LD] Cerco prezzo in structured data...");
     $jsonLdPrice = extract_price_from_jsonld($html);
+    price_log("[JSON-LD] Risultato: " . ($jsonLdPrice !== null ? $jsonLdPrice : 'non trovato'));
     if ($jsonLdPrice !== null) {
+        price_log("=> PREZZO FINALE: {$jsonLdPrice} (da JSON-LD)");
         return $jsonLdPrice;
     }
 
     if (preg_match('~"buyingPrice"\s*:\s*([\d]+\.[\d]{2})~', $html, $m)) {
         $price = normalize_price_string($m[1]);
+        price_log("[Regex] buyingPrice raw=\"{$m[1]}\" => prezzo=" . ($price !== null ? $price : 'null'));
         if ($price !== null && $price > 0) {
+            price_log("=> PREZZO FINALE: {$price} (da buyingPrice regex)");
             return $price;
         }
+    } else {
+        price_log("[Regex] buyingPrice: non trovato");
     }
 
     if (preg_match('~"displayPrice"\s*:\s*"([\d]+[,\.]\d{2})\s*€"~', $html, $m)) {
         $price = normalize_price_string($m[1]);
+        price_log("[Regex] displayPrice raw=\"{$m[1]}\" => prezzo=" . ($price !== null ? $price : 'null'));
         if ($price !== null && $price > 0) {
+            price_log("=> PREZZO FINALE: {$price} (da displayPrice regex)");
             return $price;
         }
+    } else {
+        price_log("[Regex] displayPrice: non trovato");
     }
 
+    price_log("=== NESSUN PREZZO TROVATO ===");
     return null;
 }
 

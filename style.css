@@ -116,6 +116,70 @@ th, td {
     border-bottom: 1px solid #e5e7eb;
     vertical-align: top;
 }
+.debug-log-section {
+    margin-top: 16px;
+    border: 1px solid #374151;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #111827;
+}
+.debug-log-toggle {
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: #9ca3af;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.debug-log-toggle:hover {
+    color: #e5e7eb;
+    background: #1f2937;
+}
+.debug-log-icon {
+    display: inline-block;
+    transition: transform 0.2s;
+    font-size: 10px;
+}
+.debug-log-section.open .debug-log-icon {
+    transform: rotate(90deg);
+}
+.debug-log-content {
+    display: none;
+    padding: 12px 14px;
+    border-top: 1px solid #374151;
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+}
+.debug-log-section.open .debug-log-content {
+    display: block;
+}
+.debug-line {
+    color: #d1d5db;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.debug-line.debug-success {
+    color: #34d399;
+    font-weight: bold;
+}
+.debug-line.debug-error {
+    color: #f87171;
+    font-weight: bold;
+}
+.debug-line.debug-warn {
+    color: #fbbf24;
+}
+.debug-line.debug-header {
+    color: #60a5fa;
+    font-weight: bold;
+    margin-top: 4px;
+}
 @media (max-width: 760px) {
     .form-inline {
         grid-template-columns: 1fr;

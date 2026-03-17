@@ -52,13 +52,39 @@ document.addEventListener('DOMContentLoaded', function () {
                         '</div>';
                 }).join('');
 
+                var debugLogHtml = '';
+                if (data.price_debug_log && data.price_debug_log.length > 0) {
+                    var logLines = data.price_debug_log.map(function (line) {
+                        var cssClass = 'debug-line';
+                        if (line.indexOf('** SELEZIONATO') !== -1 || line.indexOf('PREZZO FINALE') !== -1) {
+                            cssClass += ' debug-success';
+                        } else if (line.indexOf('ERRORE') !== -1 || line.indexOf('NESSUN PREZZO') !== -1) {
+                            cssClass += ' debug-error';
+                        } else if (line.indexOf('non trovato') !== -1 || line.indexOf('BARRATO') !== -1) {
+                            cssClass += ' debug-warn';
+                        } else if (line.indexOf('===') !== -1) {
+                            cssClass += ' debug-header';
+                        }
+                        return '<div class="' + cssClass + '">' + escapeHtml(line) + '</div>';
+                    }).join('');
+
+                    debugLogHtml =
+                        '<div class="debug-log-section">' +
+                            '<div class="debug-log-toggle" onclick="this.parentElement.classList.toggle(\'open\')">' +
+                                '<span class="debug-log-icon">&#9654;</span> Debug estrazione prezzo (' + data.price_debug_log.length + ' righe)' +
+                            '</div>' +
+                            '<div class="debug-log-content">' + logLines + '</div>' +
+                        '</div>';
+                }
+
                 resultBox.innerHTML =
                     '<div class="result-product-title">' + escapeHtml(data.title || 'Prodotto Amazon') + '</div>' +
                     '<div class="result-meta">' + metaHtml + '</div>' +
                     '<div class="result-actions">' +
                         '<a class="btn-result-primary" href="' + escapeHtml(data.go_url) + '">Vai su Amazon &rarr;</a>' +
                         '<a class="btn-result-secondary" href="' + escapeHtml(data.affiliate_url) + '" target="_blank" rel="noopener">Apri link diretto</a>' +
-                    '</div>';
+                    '</div>' +
+                    debugLogHtml;
             })
             .catch(function (error) {
                 renderError(error.message || 'Errore imprevisto.');

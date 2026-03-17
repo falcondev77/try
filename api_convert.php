@@ -58,6 +58,7 @@ try {
         'resolved_url' => $resolvedUrl,
         'calculation' => $calculation,
         'category_rule' => $categoryRule,
+        'price_debug_log' => get_price_debug_log(),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
     http_response_code(400);
